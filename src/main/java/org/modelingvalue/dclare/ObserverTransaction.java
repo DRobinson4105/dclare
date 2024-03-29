@@ -171,7 +171,7 @@ public class ObserverTransaction extends ActionTransaction {
         }
         if (throwable != null) {
             if (universeTransaction().getConfig().isTraceActions()) {
-                runNonObserving(() -> System.err.println(DclareTrace.getLineStart("DCLARE", this) + mutable + "." + observer() + " (" + throwable.b() + ")"));
+                runSilent(() -> System.err.println(DclareTrace.getLineStart("DCLARE", this) + mutable + "." + observer() + " (" + throwable.b() + ")"));
             }
             if (throwable.b() instanceof NullPointerException && emptyMandatory.get().equals(TRUE)) {
                 throwable = null;
@@ -292,7 +292,7 @@ public class ObserverTransaction extends ActionTransaction {
             observe(object, (Observed<O, T>) setable);
             if (!setable.isPlumbing() && !Objects.equals(pre, post)) {
                 merge();
-                result = getNonObserving(() -> {
+                result = getSilent(() -> {
                     if (pre instanceof Newable || post instanceof Newable) {
                         return (T) singleMatch((Mutable) object, (Observed) setable, pre, post);
                     } else if (isCollection(pre) && isCollection(post) && (isNewableCollection(pre) || isNewableCollection(post))) {
@@ -326,20 +326,20 @@ public class ObserverTransaction extends ActionTransaction {
     }
 
     @Override
-    public void runNonObserving(Runnable action) {
+    public void runSilent(Runnable action) {
         if (observeds.isInitialized()) {
             OBSERVE.run(false, action);
         } else {
-            super.runNonObserving(action);
+            super.runSilent(action);
         }
     }
 
     @Override
-    public <T> T getNonObserving(Supplier<T> action) {
+    public <T> T getSilent(Supplier<T> action) {
         if (observeds.isInitialized()) {
             return OBSERVE.get(false, action);
         } else {
-            return super.getNonObserving(action);
+            return super.getSilent(action);
         }
     }
 
@@ -349,7 +349,7 @@ public class ObserverTransaction extends ActionTransaction {
         if (observing(object, setable)) {
             changed.set(TRUE);
         }
-        runNonObserving(() -> super.changed(object, setable, preValue, rawPreValue, postValue));
+        runSilent(() -> super.changed(object, setable, preValue, rawPreValue, postValue));
     }
 
     private <O, T> boolean observing(O object, Getable<O, T> setable) {
@@ -568,7 +568,7 @@ public class ObserverTransaction extends ActionTransaction {
 
     private <O> void traceRippleOut(O object, Feature feature, Object post, Object result) {
         if (universeTransaction().getConfig().isTraceRippleOut()) {
-            runNonObserving(() -> System.err.println(DclareTrace.getLineStart("DEFER", this) + mutable() + "." + observer() + //
+            runSilent(() -> System.err.println(DclareTrace.getLineStart("DEFER", this) + mutable() + "." + observer() + //
                     " " + deferPriorityName() + " (" + object + "." + feature + "=" + result + "<-" + post + ")"));
         }
     }
@@ -608,7 +608,7 @@ public class ObserverTransaction extends ActionTransaction {
                     }
                 }
                 if (!found && universeTransaction().getConfig().isTraceMatching()) {
-                    runNonObserving(() -> System.err.println(DclareTrace.getLineStart("MATCH", this) + mutable() + "." + observer() + " (" + preInfo + "!=" + postInfo + ")"));
+                    runSilent(() -> System.err.println(DclareTrace.getLineStart("MATCH", this) + mutable() + "." + observer() + " (" + preInfo + "!=" + postInfo + ")"));
                 }
             }
         }
@@ -665,7 +665,7 @@ public class ObserverTransaction extends ActionTransaction {
                             break;
                         } else if (universeTransaction().getConfig().isTraceMatching()) {
                             MatchInfo finalPostInfo = postInfo;
-                            runNonObserving(() -> System.err.println(DclareTrace.getLineStart("MATCH", this) + mutable() + "." + observer() + " (" + preInfo + "!=" + finalPostInfo + ")"));
+                            runSilent(() -> System.err.println(DclareTrace.getLineStart("MATCH", this) + mutable() + "." + observer() + " (" + preInfo + "!=" + finalPostInfo + ")"));
                         }
                     }
                 }
@@ -685,7 +685,7 @@ public class ObserverTransaction extends ActionTransaction {
         Mutable mutable = mutable();
         Observer<?> observer = observer();
         if (universeTransaction().getConfig().isTraceMatching()) {
-            runNonObserving(() -> System.err.println(DclareTrace.getLineStart("MATCH", this) + mutable + "." + observer + " (" + replacing + "==" + replaced + ")"));
+            runSilent(() -> System.err.println(DclareTrace.getLineStart("MATCH", this) + mutable + "." + observer + " (" + replacing + "==" + replaced + ")"));
         }
         if (Mutable.D_INITIAL_CONSTRUCTION.get(replacing.newable()).isDirect()) {
             super.set(replaced.newable(), Newable.D_REPLACING, Newable.D_REPLACING.getDefault(replaced.newable()), replacing.newable());

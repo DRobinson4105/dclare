@@ -175,11 +175,11 @@ public abstract class LeafTransaction extends Transaction implements ILeafTransa
         return state().getA(object, Mutable.D_PARENT_CONTAINING);
     }
 
-    public void runNonObserving(Runnable action) {
+    public void runSilent(Runnable action) {
         action.run();
     }
 
-    public <T> T getNonObserving(Supplier<T> action) {
+    public <T> T getSilent(Supplier<T> action) {
         return action.get();
     }
 

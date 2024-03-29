@@ -41,9 +41,14 @@ import org.modelingvalue.dclare.ex.TransactionException;
 public class ActionTransaction extends LeafTransaction implements StateMergeHandler {
     private final CurrentState     currentState  = new CurrentState();
     private final ILeafTransaction changeHandler = new ILeafTransaction() {
+                                                     @SuppressWarnings("unchecked")
                                                      @Override
                                                      public <O, T> void changed(O object, Setable<O, T> setable, T preValue, T rawPreValue, T postValue) {
-                                                         ActionTransaction.this.set(object, setable, preValue, postValue);
+                                                         ActionTransaction.this.changed(object, setable, preValue, rawPreValue, postValue);
+                                                         if (setable.id() instanceof Observed) {
+                                                             // LeafTransaction.getCurrent().runSilent(() -> System.err.println("PULL " + object + "." + setable + "=" + postValue));
+                                                             ActionTransaction.this.set(object, (Observed<O, T>) setable.id(), preValue, postValue);
+                                                         }
                                                      }
 
                                                      @Override
@@ -53,6 +58,7 @@ public class ActionTransaction extends LeafTransaction implements StateMergeHand
 
                                                      @Override
                                                      public <O, T> T set(O object, Setable<O, T> property, T post) {
+                                                         // LeafTransaction.getCurrent().runSilent(() -> System.err.println("PUSH " + object + "." + property + "=" + post));
                                                          return ActionTransaction.this.set(object, property, post);
                                                      }
 
@@ -100,7 +106,7 @@ public class ActionTransaction extends LeafTransaction implements StateMergeHand
                     postState = currentState.merge();
                     Map<Object, Map<Setable, Pair<Object, Object>>> diff = preState.diff(postState, o -> o instanceof Mutable, s -> s instanceof Observed && !s.isPlumbing()).asMap(e -> e);
                     if (!diff.isEmpty()) {
-                        runNonObserving(() -> System.err.println(DclareTrace.getLineStart("DCLARE", this) + mutable() + "." + action() + " (" + postState.shortDiffString(diff, mutable()) + ")"));
+                        runSilent(() -> System.err.println(DclareTrace.getLineStart("DCLARE", this) + mutable() + "." + action() + " (" + postState.shortDiffString(diff, mutable()) + ")"));
                     }
                 } else {
                     postState = currentState.result();
@@ -217,7 +223,7 @@ public class ActionTransaction extends LeafTransaction implements StateMergeHand
                     Priority priority = observer.fixpointGroup() == fixpointGroup() ? observer.initPriority() : Priority.five;
                     trigger(target, observer, priority);
                     if (universeTransaction().getConfig().isTraceMutable()) {
-                        runNonObserving(() -> System.err.println(DclareTrace.getLineStart("DCLARE", this) + mutable() + "." + action() + " (TRIGGER " + target + "." + observer + ")"));
+                        runSilent(() -> System.err.println(DclareTrace.getLineStart("DCLARE", this) + mutable() + "." + action() + " (TRIGGER " + target + "." + observer + ")"));
                     }
                 }
             }

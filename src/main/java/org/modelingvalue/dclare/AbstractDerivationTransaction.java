@@ -113,12 +113,12 @@ public abstract class AbstractDerivationTransaction extends ReadOnlyTransaction 
                     Set<Pair<Mutable, Observed>> newDerived = oldDerived.add(derived);
                     if (oldDerived == newDerived) {
                         if (isTraceDerivation(object, observed)) {
-                            runNonDeriving(() -> System.err.println(tracePre(object) + "RECU " + object + "." + observed + " => RECURSIVE DERIVATION, result is the non-derived value: " + nonDerived));
+                            runSilent(() -> System.err.println(tracePre(object) + "RECU " + object + "." + observed + " => RECURSIVE DERIVATION, result is the non-derived value: " + nonDerived));
                         }
                         return nonDerived;
                     } else {
                         if (isTraceDerivation(object, observed)) {
-                            runNonDeriving(() -> System.err.println(tracePre(object) + ">>>> " + object + "." + observed));
+                            runSilent(() -> System.err.println(tracePre(object) + ">>>> " + object + "." + observed));
                         }
                         DerivedValue<O, T> innerDerivedValue = new DerivedValue(object, observed);
                         INDENT.run(INDENT.get() + 1, () -> DERIVED.run(newDerived, () -> DERIVED_VALUE.run(innerDerivedValue, () -> {
@@ -132,7 +132,7 @@ public abstract class AbstractDerivationTransaction extends ReadOnlyTransaction 
                         })));
                         if (!mem.isSet(iLeafTransaction, object, constant)) {
                             if (isTraceDerivation(object, observed)) {
-                                INDENT.run(INDENT.get() + 1, () -> runNonDeriving(() -> System.err.println(tracePre(object) + "NODR " + object + "." + observed + " => NO DERIVATION, result is the non-derived value: " + nonDerived)));
+                                INDENT.run(INDENT.get() + 1, () -> runSilent(() -> System.err.println(tracePre(object) + "NODR " + object + "." + observed + " => NO DERIVATION, result is the non-derived value: " + nonDerived)));
                             }
                             return nonDerived;
                         }
@@ -148,14 +148,14 @@ public abstract class AbstractDerivationTransaction extends ReadOnlyTransaction 
     @SuppressWarnings({"rawtypes", "unchecked"})
     protected void runDeriver(Mutable mutable, Observed observed, Observer observer, int i) {
         if (isTraceDerivation(mutable, observed)) {
-            runNonDeriving(() -> System.err.println(tracePre(mutable) + String.format(">>%d> ", i) + mutable + "." + observer + "()"));
+            runSilent(() -> System.err.println(tracePre(mutable) + String.format(">>%d> ", i) + mutable + "." + observer + "()"));
         }
         INDENT.run(INDENT.get() + 1, () -> DERIVER.run(Pair.of(mutable, observer), () -> {
             try {
                 observer.run(mutable);
             } catch (Throwable t) {
                 if (isTraceDerivation(mutable, observed)) {
-                    runNonDeriving(() -> System.err.println(tracePre(mutable) + "!!!! " + mutable + "." + observer + "() => THROWS " + t));
+                    runSilent(() -> System.err.println(tracePre(mutable) + "!!!! " + mutable + "." + observer + "() => THROWS " + t));
                 }
                 universeTransaction().handleException(new TransactionException(mutable, new TransactionException(observer, t)));
             }
@@ -181,8 +181,14 @@ public abstract class AbstractDerivationTransaction extends ReadOnlyTransaction 
         return set(object, setable, post, nonDerived);
     }
 
-    public void runNonDeriving(Runnable action) {
+    @Override
+    public void runSilent(Runnable action) {
         DERIVE.run(false, action);
+    }
+
+    @Override
+    public <R> R getSilent(Supplier<R> action) {
+        return DERIVE.get(false, action);
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
@@ -201,7 +207,7 @@ public abstract class AbstractDerivationTransaction extends ReadOnlyTransaction 
                 setInMemoization(mem, object, observed, result, false);
             }
             if (isTraceDerivation(object, observed)) {
-                runNonDeriving(() -> {
+                runSilent(() -> {
                     Pair<Mutable, Observer> deriver = DERIVER.get();
                     System.err.println(tracePre(object) + "SET  " + deriver.a() + "." + deriver.b() + "(" + object + "." + observed + "=" + pre + "->" + result + ")");
                 });
