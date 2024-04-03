@@ -212,7 +212,11 @@ public abstract class AbstractDerivationTransaction extends ReadOnlyTransaction 
             if (isTraceDerivation(object, observed)) {
                 runSilent(() -> {
                     Pair<Mutable, Observer> deriver = DERIVER.get();
-                    System.err.println(tracePre(object, this) + "SET  " + deriver.a() + "." + deriver.b() + "(" + object + "." + observed + "=" + pre + "->" + result + ")");
+                    if (deriver != null) {
+                        System.err.println(tracePre(object, this) + "SET  " + deriver.a() + "." + deriver.b() + "(" + object + "." + observed + "=" + pre + "->" + result + ")");
+                    } else {
+                        System.err.println(tracePre(object, this) + "SET  (" + object + "." + observed + "=" + pre + "->" + result + ")");
+                    }
                 });
             }
             if (observed.containment()) {
