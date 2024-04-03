@@ -309,7 +309,7 @@ public abstract class AbstractDerivationTransaction extends ReadOnlyTransaction 
 
     @SuppressWarnings("rawtypes")
     protected <O> boolean isTraceDerivation(O object, Setable setable) {
-        return (setable == null || !setable.isPlumbing()) && universeTransaction().getConfig().isTraceDerivation();
+        return (setable == null || (!setable.isPlumbing() && !setable.synthetic())) && universeTransaction().getConfig().isTraceDerivation();
     }
 
     private <O> String tracePre(O object, Transaction transaction) {
