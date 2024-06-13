@@ -54,7 +54,7 @@ public abstract class LeafTransaction extends Transaction implements ILeafTransa
 
     @SuppressWarnings("rawtypes")
     private static boolean ignoreForConsistency(Object o) {
-        return o instanceof Observed && !((Observed) o).checkConsistency();
+        return (o instanceof Observed && !((Observed) o).checkConsistency()) || o instanceof NonCheckingObserver;
     }
 
     public static String condenseForConsistencyTrace(DefaultMap<?, Set<Mutable>> map) {
