@@ -60,6 +60,11 @@ public class NonCheckingObserver<O extends Mutable> extends Observer<O> {
         return new NonCheckingTransaction(universeTransaction);
     }
 
+    @Override
+    public boolean isActive(Mutable mutable) {
+        return !isStopped();
+    }
+
     public static class NonCheckingTransaction extends ObserverTransaction {
 
         protected NonCheckingTransaction(UniverseTransaction root) {

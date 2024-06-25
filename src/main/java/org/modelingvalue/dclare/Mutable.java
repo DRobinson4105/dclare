@@ -50,8 +50,7 @@ public interface Mutable extends TransactionClass {
     @SuppressWarnings({"rawtypes", "unchecked"})
     Setable<Mutable, Set<? extends Observer<?>>>             D_OBSERVERS              = Setable.of("D_OBSERVERS", Set.of(), (tx, obj, pre, post) -> Setable.<Set<? extends Observer<?>>, Observer> diff(pre, post,              //
             added -> added.trigger(obj, added.fixpointGroup() == FixpointGroup.DEFAULT ? added.initPriority() : Priority.five),                                                                                                 //
-            removed -> {
-            }));
+            removed -> removed.deObserve(tx, obj)));
 
     Observer<Mutable>                                        D_OBSERVERS_RULE         = NonCheckingObserver.of("D_OBSERVERS_RULE", m -> D_OBSERVERS.set(m, m.dAllObservers().exclude(o -> o.direction().isLazy()).asSet()));
 

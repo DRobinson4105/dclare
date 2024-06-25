@@ -431,7 +431,7 @@ public class NewableTests {
                     observe(right, ft -> mrol.get(rf), oo2fbDir). //
                     observe(left, ft -> opp.get(rf) != null && compare(n.get(rf), n.get(opp.get(rf))) > 0 ? mrol.get(opp.get(rf)) : create(ROL, y -> y. //
                             observe(n, rl -> "~", oo2fbDir). //
-                            observe(otr, rl -> mobt.get((TestNewable) rf.dParent()), oo2fbDir) //
+                            observe(otr, rl -> rf.dParent() != null ? mobt.get((TestNewable) rf.dParent()) : null, oo2fbDir) //
                     ), oo2fbDir) //
             ) : null, oo2fbDir);
         }

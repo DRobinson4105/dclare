@@ -98,7 +98,7 @@ public class ObserverTransaction extends ActionTransaction {
         // check if the universe is still in the same transaction run, if not: reset the counts of my observer
         observer.startTransaction(universeTransaction.stats());
         // check if we should do the work...
-        if (!observer.isStopped() && !universeTransaction.isKilled()) {
+        if (!universeTransaction.isKilled() && observer.isActive(mutable())) {
             observeds.init(Observed.OBSERVED_MAP);
             constructions.init(Map.of());
             emptyMandatory.init(FALSE);
@@ -159,10 +159,10 @@ public class ObserverTransaction extends ActionTransaction {
                 }
             }
             trace(pre, observeds);
-            DefaultMap preSources = super.set(mutable, observer.observeds(), observeds);
-            if (preSources.isEmpty() && !observeds.isEmpty()) {
+            DefaultMap preObserveds = super.set(mutable, observer.observeds(), observeds);
+            if (preObserveds.isEmpty() && !observeds.isEmpty()) {
                 observer.addInstance();
-            } else if (!preSources.isEmpty() && observeds.isEmpty()) {
+            } else if (!preObserveds.isEmpty() && observeds.isEmpty()) {
                 observer.removeInstance();
             }
         } catch (ConsistencyError ce) {
@@ -412,19 +412,17 @@ public class ObserverTransaction extends ActionTransaction {
     private <O, T, E> T rippleOut(O object, Observed<O, T> observed, T pre, T post) {
         boolean isColl = isNonMapCollection(pre) && isNonMapCollection(post);
         boolean isList = isColl && isList(pre) && isList(post);
-        boolean forward = isForward(object, observed, pre, post, isColl);
-        boolean isNew = !startState(Priority.four).get(mutable(), Mutable.D_OBSERVERS).contains(observer());
         if (isColl) {
             ContainingCollection<E>[] result = new ContainingCollection[]{(ContainingCollection<E>) post};
             Observed<O, ContainingCollection<E>> many = (Observed<O, ContainingCollection<E>>) observed;
             Setable.<T, E> diff(pre, post, added -> {
-                Priority delay = added(object, many, added, forward, isNew);
+                Priority delay = added(object, many, added);
                 if (delay != null) {
                     defer.set(delay, TRUE);
                     result[0] = result[0].remove(added);
                 }
             }, removed -> {
-                Priority delay = removed(object, many, removed, forward, isNew);
+                Priority delay = removed(object, many, removed);
                 if (delay != null) {
                     defer.set(delay, TRUE);
                     if (isList) {
@@ -441,7 +439,7 @@ public class ObserverTransaction extends ActionTransaction {
             }
         }
         if (!isColl || isList) {
-            Priority delay = changed(object, observed, pre, post, forward, isNew);
+            Priority delay = changed(object, observed, pre, post);
             if (delay != null) {
                 defer.set(delay, TRUE);
                 traceRippleOut(object, observed, post, pre);
@@ -459,72 +457,42 @@ public class ObserverTransaction extends ActionTransaction {
         return t instanceof List;
     }
 
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private <O, T, E> boolean isForward(O outObject, Observed<O, T> outObserved, T pre, T post, boolean isColl) {
-        Mutable mutable = mutable();
-        Pair<Mutable, Setable<Mutable, ?>> intermediatePair = startState(Priority.INNER).get(mutable, Mutable.D_PARENT_CONTAINING);
-        if (!Objects.equals(preStartState(Priority.INNER).get(mutable, Mutable.D_PARENT_CONTAINING), intermediatePair) || !Objects.equals(intermediatePair, state().get(mutable, Mutable.D_PARENT_CONTAINING))) {
-            return true;
-        } else {
-            Boolean[] match = new Boolean[]{null};
-            return observeds.get().anyMatch(e -> e.getValue().anyMatch(o -> {
-                Observed inObserved = e.getKey();
-                if (!inObserved.isPlumbing()) {
-                    Mutable inObject = o.dResolve(mutable);
-                    if (!inObject.equals(outObject) || !inObserved.equals(outObserved)) {
-                        Object intermediateObject = startState(Priority.INNER).get(inObject, inObserved);
-                        return !Objects.equals(preStartState(Priority.INNER).get(inObject, inObserved), intermediateObject) || !Objects.equals(intermediateObject, state().get(inObject, inObserved));
-                    } else if (isColl) {
-                        if (match[0] == null) {
-                            match[0] = isChanged(outObject, outObserved, (ContainingCollection<E>) pre, (ContainingCollection<E>) post, preStartState(Priority.INNER), startState(Priority.INNER)) //
-                                    || isChanged(outObject, outObserved, (ContainingCollection<E>) pre, (ContainingCollection<E>) post, startState(Priority.INNER), state());
-                        }
-                        return match[0];
-                    }
-                }
-                return false;
-            }));
-        }
-    }
-
-    private <O, T, E> boolean isChanged(O object, Observed<O, T> many, ContainingCollection<E> pre, ContainingCollection<E> post, IState preState, IState postState) {
-        boolean[] result = new boolean[1];
-        Setable.<T, E> diff(preState.get(object, many), postState.get(object, many), added -> result[0] = pre.contains(added) == post.contains(added), removed -> result[0] = pre.contains(removed) == post.contains(removed));
-        return result[0];
-    }
-
-    private <O, T extends ContainingCollection<E>, E> Priority added(O object, Observed<O, T> observed, E added, boolean forward, boolean isNew) {
-        return added(object, observed, startState(Priority.INNER), state(), added, forward) ? Priority.INNER : //
+    private <O, T extends ContainingCollection<E>, E> Priority added(O object, Observed<O, T> observed, E added) {
+        return added(object, observed, startState(Priority.INNER), state(), added) ? Priority.INNER : //
                 becameDerived(observed, added, startState(Priority.three), current()) ? Priority.three : //
-                        (isNew && added(object, observed, startState(), startState(Priority.four), added, forward)) ? Priority.four : //
-                                added(object, observed, preStartState(Priority.OUTER).raw(), startState(Priority.OUTER), added, forward) ? Priority.OUTER : null;
+                        (isNew(startState(Priority.four), state()) && added(object, observed, startState(), startState(Priority.four), added)) ? Priority.four : //
+                                added(object, observed, preStartState(Priority.OUTER).raw(), startState(Priority.OUTER), added) ? Priority.OUTER : null;
     }
 
-    private <O, T extends ContainingCollection<E>, E> Priority removed(O object, Observed<O, T> observed, E removed, boolean forward, boolean isNew) {
-        return removed(object, observed, startState(Priority.INNER), state(), removed, forward) ? Priority.INNER : //
-                (isNew && removed(object, observed, startState(), startState(Priority.four), removed, forward)) ? Priority.four : //
+    private <O, T extends ContainingCollection<E>, E> Priority removed(O object, Observed<O, T> observed, E removed) {
+        return removed(object, observed, startState(Priority.INNER), state(), removed) ? Priority.INNER : //
+                (isNew(startState(Priority.four), state()) && removed(object, observed, startState(), startState(Priority.four), removed)) ? Priority.four : //
                         becameContained(observed, removed, startState(Priority.four), startState(Priority.INNER)) ? Priority.four : //
-                                removed(object, observed, preStartState(Priority.OUTER).raw(), startState(Priority.OUTER), removed, forward) ? Priority.OUTER : null;
+                                removed(object, observed, preStartState(Priority.OUTER).raw(), startState(Priority.OUTER), removed) ? Priority.OUTER : null;
     }
 
-    private <O, T> Priority changed(O object, Observed<O, T> observed, T pre, T post, boolean forward, boolean isNew) {
-        return changed(object, observed, startState(Priority.INNER), state(), pre, post, forward) ? Priority.INNER : //
+    private <O, T> Priority changed(O object, Observed<O, T> observed, T pre, T post) {
+        return changed(object, observed, startState(Priority.INNER), state(), pre, post) ? Priority.INNER : //
                 becameDerived(observed, post, startState(Priority.three), current()) ? Priority.three : //
-                        (isNew && changed(object, observed, startState(), startState(Priority.four), pre, post, forward)) ? Priority.four : //
+                        (isNew(startState(Priority.four), state()) && changed(object, observed, startState(), startState(Priority.four), pre, post)) ? Priority.four : //
                                 becameContained(observed, pre, startState(Priority.four), startState(Priority.INNER)) ? Priority.four : //
-                                        changed(object, observed, preStartState(Priority.OUTER).raw(), startState(Priority.OUTER), pre, post, forward) ? Priority.OUTER : null;
+                                        changed(object, observed, preStartState(Priority.OUTER).raw(), startState(Priority.OUTER), pre, post) ? Priority.OUTER : null;
     }
 
-    private <O, T extends ContainingCollection<E>, E> boolean added(O object, Observed<O, T> observed, IState preState, IState postState, E added, boolean forward) {
-        return isChildChanged(observed, added, preState, postState) || isRemoved(object, observed, added, preState, postState, forward);
+    private boolean isNew(IState preState, IState postState) {
+        return !preState.get(mutable(), Mutable.D_OBSERVERS).contains(observer()) && postState.get(mutable(), Mutable.D_OBSERVERS).contains(observer());
     }
 
-    private <O, T extends ContainingCollection<E>, E> boolean removed(O object, Observed<O, T> observed, IState preState, IState postState, E removed, boolean forward) {
-        return isChildChanged(observed, removed, preState, postState) || isAdded(object, observed, removed, preState, postState, forward);
+    private <O, T extends ContainingCollection<E>, E> boolean added(O object, Observed<O, T> observed, IState preState, IState postState, E added) {
+        return isChildChanged(observed, added, preState, postState) || isRemoved(object, observed, added, preState, postState);
     }
 
-    private <O, T> boolean changed(O object, Observed<O, T> observed, IState preState, IState postState, T pre, T post, boolean forward) {
-        return isChangedBack(object, observed, pre, post, preState, postState, forward) || //
+    private <O, T extends ContainingCollection<E>, E> boolean removed(O object, Observed<O, T> observed, IState preState, IState postState, E removed) {
+        return isChildChanged(observed, removed, preState, postState) || isAdded(object, observed, removed, preState, postState);
+    }
+
+    private <O, T> boolean changed(O object, Observed<O, T> observed, IState preState, IState postState, T pre, T post) {
+        return isChangedBack(object, observed, pre, post, preState, postState) || //
                 isChildChanged(observed, pre, preState, postState) || isChildChanged(observed, post, preState, postState);
     }
 
@@ -550,20 +518,21 @@ public class ObserverTransaction extends ActionTransaction {
         return false;
     }
 
-    private <O, T extends ContainingCollection<E>, E> boolean isAdded(O object, Observed<O, T> observed, E element, IState preState, IState postState, boolean forward) {
-        return !observed.collection(preState.get(object, observed)).contains(element) && //
-                (!forward || postState == state() || observed.collection(postState.get(object, observed)).contains(element));
+    private <O, T extends ContainingCollection<E>, E> boolean isAdded(O object, Observed<O, T> observed, E removed, IState preState, IState postState) {
+        return !observed.collection(preState.get(object, observed)).contains(removed) && //
+                (postState == state() || observed.collection(postState.get(object, observed)).contains(removed));
     }
 
-    private <O, T extends ContainingCollection<E>, E> boolean isRemoved(O object, Observed<O, T> observed, E element, IState preState, IState postState, boolean forward) {
-        return observed.collection(preState.get(object, observed)).contains(element) && //
-                (!forward || postState == state() || !observed.collection(postState.get(object, observed)).contains(element));
+    private <O, T extends ContainingCollection<E>, E> boolean isRemoved(O object, Observed<O, T> observed, E added, IState preState, IState postState) {
+        return observed.collection(preState.get(object, observed)).contains(added) && //
+                (postState == state() || !observed.collection(postState.get(object, observed)).contains(added));
     }
 
     @SuppressWarnings("unused")
-    private <O, T> boolean isChangedBack(O object, Observed<O, T> observed, T pre, T post, IState preState, IState postState, boolean forward) {
+    private <O, T> boolean isChangedBack(O object, Observed<O, T> observed, T pre, T post, IState preState, IState postState) {
         T before = preState.get(object, observed);
-        return Objects.equals(before, post) && (!forward || (postState != state() && !Objects.equals(before, postState.get(object, observed))));
+        return Objects.equals(before, post) && //
+                (postState == state() || !Objects.equals(before, postState.get(object, observed)));
     }
 
     private <O> void traceRippleOut(O object, Feature feature, Object post, Object result) {

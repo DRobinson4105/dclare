@@ -409,4 +409,8 @@ public class Observer<O extends Mutable> extends Action<O> implements Internable
         return debugs;
     }
 
+    public boolean isActive(Mutable mutable) {
+        return !isStopped() && Mutable.D_OBSERVERS.get(mutable).contains(this);
+    }
+
 }
