@@ -496,18 +496,16 @@ public class ObserverTransaction extends ActionTransaction {
                 isChildChanged(observed, pre, preState, postState) || isChildChanged(observed, post, preState, postState);
     }
 
-    @SuppressWarnings("unused")
     private <O, T, E> boolean becameDerived(Observed<O, T> observed, E element, IState preState, IState postState) {
         return element instanceof Newable && ((Newable) element).dInitialConstruction().isDerived() && //
                 preState.get((Newable) element, Newable.D_ALL_DERIVATIONS).isEmpty() && //
                 !postState.get((Newable) element, Newable.D_ALL_DERIVATIONS).isEmpty();
     }
 
-    @SuppressWarnings("unused")
     private <O, T, E> boolean becameContained(Observed<O, T> observed, E element, IState preState, IState postState) {
-        return element instanceof Newable && //
-                preState.get((Newable) element, Mutable.D_PARENT_CONTAINING) == null && //
-                postState.get((Newable) element, Mutable.D_PARENT_CONTAINING) != null;
+        return element instanceof Mutable && //
+                preState.get((Mutable) element, Mutable.D_PARENT_CONTAINING) == null && //
+                postState.get((Mutable) element, Mutable.D_PARENT_CONTAINING) != null;
     }
 
     private <O, T, E> boolean isChildChanged(Observed<O, T> observed, E element, IState preState, IState postState) {
@@ -528,7 +526,6 @@ public class ObserverTransaction extends ActionTransaction {
                 (postState == state() || !observed.collection(postState.get(object, observed)).contains(added));
     }
 
-    @SuppressWarnings("unused")
     private <O, T> boolean isChangedBack(O object, Observed<O, T> observed, T pre, T post, IState preState, IState postState) {
         T before = preState.get(object, observed);
         return Objects.equals(before, post) && //
