@@ -204,6 +204,9 @@ public abstract class AbstractDerivationTransaction extends ReadOnlyTransaction 
             Constant<O, T> constant = observed.constant();
             T pre = isDerived && derived.isSet() ? derived.get() : mem.isSet(iLeafTransaction, object, constant) ? mem.get(iLeafTransaction, object, constant) : nonDerived;
             T result = match(mem, observed, pre, post);
+            if (isDerived && derived.isSet() && !Objects.equals(pre, nonDerived) && Objects.equals(result, nonDerived)) {
+                return post;
+            }
             if (isDerived) {
                 derived.set(result);
             } else {
