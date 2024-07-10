@@ -26,15 +26,12 @@ import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
-import org.modelingvalue.collections.Collection;
-import org.modelingvalue.collections.DefaultMap;
-import org.modelingvalue.collections.Entry;
-import org.modelingvalue.collections.List;
-import org.modelingvalue.collections.Set;
+import org.modelingvalue.collections.*;
 import org.modelingvalue.collections.util.Concurrent;
 import org.modelingvalue.collections.util.ContextPool;
 import org.modelingvalue.collections.util.StatusProvider;
@@ -50,6 +47,8 @@ import org.modelingvalue.dclare.ex.TooManyChangesException;
 public class UniverseTransaction extends MutableTransaction {
 
     private static final Setable<Universe, Boolean>                                                    STOPPED                 = Setable.of("stopped", false);
+    private static final TerminalImperativeTransaction                                                 SOURCE               = new TerminalImperativeTransaction();
+    private static final TerminalImperativeTransaction                                                 TARGET               = new TerminalImperativeTransaction();
     //
     private final DclareConfig                                                                         config;
     protected final Concurrent<ReusableTransaction<Action<?>, ActionTransaction>>                      actionTransactions      = Concurrent.of(() -> new ReusableTransaction<>(this));
@@ -94,7 +93,7 @@ public class UniverseTransaction extends MutableTransaction {
     private List<Action<Universe>>                                                                     timeTravelingActions    = List.of(backward, forward);
     private List<Action<Universe>>                                                                     preActions              = List.of();
     private List<Action<Universe>>                                                                     postActions             = List.of();
-    private List<ImperativeTransaction>                                                                imperativeTransactions  = List.of();
+    private Graph<IImperativeTransaction, Class<Void>>                                                 imperativeTransactions  = Graph.of();
     private List<State>                                                                                history                 = List.of();
     private List<State>                                                                                future                  = List.of();
     private State                                                                                      preState;
@@ -282,7 +281,7 @@ public class UniverseTransaction extends MutableTransaction {
                         handleTooManyChanges(state);
                         runActions(postActions);
                     }
-                    commit(state, timeTraveling, imperativeTransactions.iterator());
+                    commit(state, timeTraveling);
                     if (!killed && inQueue.isEmpty() && isStopped(state)) {
                         break;
                     }
@@ -709,32 +708,67 @@ public class UniverseTransaction extends MutableTransaction {
     public ImperativeTransaction addImperative(String id, StateDeltaHandler diffHandler, Consumer<Runnable> scheduler, boolean keepTransaction) {
         ImperativeTransaction n = ImperativeTransaction.of(Imperative.of(id), preState, this, scheduler, diffHandler, keepTransaction);
         synchronized (this) {
-            imperativeTransactions = imperativeTransactions.add(n);
+            imperativeTransactions = imperativeTransactions.putEdge(SOURCE, n, Void.class);
         }
         return n;
     }
 
+    public void orderImperativeTransactions(ImperativeTransaction first, ImperativeTransaction second) {
+       imperativeTransactions = imperativeTransactions.putEdge(first, second, Void.class);
+    }
+
+    public void orderImperativeTransactions(String first, String second) {
+        orderImperativeTransactions(getImperativeTransaction(first), getImperativeTransaction(second));
+    }
+
+    @SuppressWarnings("unchecked")
     public List<ImperativeTransaction> getImperativeTransactions() {
-        return imperativeTransactions;
+        return imperativeTransactions.getNodes().filter(ImperativeTransaction.class::isInstance).map(ImperativeTransaction.class::cast).asList();
     }
 
     public ImperativeTransaction getImperativeTransaction(String id) {
-        for (ImperativeTransaction it : imperativeTransactions) {
-            if (it.imperative().id().equals(id)) {
+        for (IImperativeTransaction iit : imperativeTransactions.getNodes()) {
+            if (iit instanceof ImperativeTransaction it && it.imperative().id().equals(id)) {
                 return it;
             }
         }
         return null;
     }
 
-    private void commit(State state, boolean timeTraveling, Iterator<ImperativeTransaction> it) {
-        if (!killed && it.hasNext()) {
-            ImperativeTransaction itx = it.next();
-            itx.schedule(() -> {
-                if (itx.commit(state, timeTraveling)) {
-                    commit(itx.state(), timeTraveling, it);
+    private void commit(State state, boolean timeTraveling) {
+        if (imperativeTransactions.hasCycles(n -> true, e -> !Objects.equals(e.a(), e.c())))
+            throw new Error("Circular native group ordering");
+
+        AtomicReference<Set<IImperativeTransaction>> started = new AtomicReference<>(Set.of());
+        AtomicReference<Set<IImperativeTransaction>> stopped = new AtomicReference<>(Set.of());
+        AtomicBoolean inSync = new AtomicBoolean(true);
+
+        imperativeTransactions = imperativeTransactions.putEdge(SOURCE, TARGET, Void.class);
+        tryCommit(state, timeTraveling, SOURCE, started, stopped, inSync);
+    }
+
+    private void tryCommit(State state, boolean timeTraveling, IImperativeTransaction it, AtomicReference<Set<IImperativeTransaction>> started, AtomicReference<Set<IImperativeTransaction>> stopped, AtomicBoolean inSync) {
+        if (!inSync.get() || killed || Objects.equals(it, TARGET)) return;
+
+        Set<IImperativeTransaction> incoming = imperativeTransactions.getIncomingNodes(it);
+        if (!stopped.get().containsAll(incoming)) return;
+
+        Set<IImperativeTransaction> s = started.getAndUpdate(old -> old.add(it));
+        if (s.contains(it)) return;
+
+        stopped.updateAndGet(old -> old.add(it));
+        if (it instanceof ImperativeTransaction im) {
+            im.schedule(() -> {
+                if (im.commit(state, timeTraveling)) {
+                    imperativeTransactions.getOutgoingNodes(it).forEach(next ->
+                            tryCommit(state, timeTraveling, next, started, stopped, inSync));
+                } else {
+                    inSync.set(false);
                 }
             });
+        } else {
+            imperativeTransactions.getOutgoingNodes(it).forEach(next ->
+                    tryCommit(state, timeTraveling, next, started, stopped, inSync));
         }
     }
 
