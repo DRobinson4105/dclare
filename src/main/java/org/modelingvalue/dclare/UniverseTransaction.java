@@ -735,7 +735,7 @@ public class UniverseTransaction extends MutableTransaction {
     }
 
     private void commit(State state, boolean timeTraveling) {
-        if (imperativeTransactions.hasCycles(n -> true, e -> !Objects.equals(e.a(), e.c())))
+        if (imperativeTransactions.hasCycles(n -> true, e -> true))
             throw new Error("Circular native group ordering");
 
         AtomicReference<Set<IImperativeTransaction>> started = new AtomicReference<>(Set.of());

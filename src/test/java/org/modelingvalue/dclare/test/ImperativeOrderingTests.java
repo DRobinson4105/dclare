@@ -39,10 +39,14 @@ public class ImperativeOrderingTests {
     };
 
     private boolean imperativeTest(DclareConfig config, int size, Set<Pair<Integer, Integer>> edges) {
+        return imperativeTest(config, size, edges, edges);
+    }
+
+    private boolean imperativeTest(DclareConfig config, int size, Set<Pair<Integer, Integer>> expectedEdges, Set<Pair<Integer, Integer>> actualEdges) {
         Observed<TestMutable, List<TestNewable>> cs = Observed.of("cs", List.of(), containment);
         TestMutableClass U = TestMutableClass.of("Universe", cs);
 
-        OrderedTestUniverse universe = OrderedTestUniverse.of("universe", U, size, edges);
+        OrderedTestUniverse universe = OrderedTestUniverse.of("universe", U, size, expectedEdges, actualEdges);
         UniverseTransaction utx = new UniverseTransaction(universe, THE_POOL, config);
 
         Set<Pair<Integer, Runnable>> actions = Set.of(IntStream.range(0, size)
@@ -54,23 +58,6 @@ public class ImperativeOrderingTests {
         utx.waitForEnd();
         return universe.passed();
     }
-
-//    private boolean imperativeTest(DclareConfig config, int size, Set<Pair<Integer, Integer>> expectedEdges, Set<Pair<Integer, Integer>> actualEdges) {
-//        Observed<TestMutable, List<TestNewable>> cs = Observed.of("cs", List.of(), containment);
-//        TestMutableClass U = TestMutableClass.of("Universe", cs);
-//
-//        OrderedTestUniverse universe = OrderedTestUniverse.of("universe", U, size, expectedEdges, actualEdges);
-//        UniverseTransaction utx = new UniverseTransaction(universe, THE_POOL, config);
-//
-//        Set<Pair<Integer, Runnable>> actions = Set.of(IntStream.range(0, size)
-//                .mapToObj(i -> Pair.of(i, (Runnable) () -> {})).toList());
-//
-//        run(utx, "init", actions);
-//
-//        run(utx, "stop", Set.of(Pair.of(0, utx::stop)));
-//        utx.waitForEnd();
-//        return universe.passed();
-//    }
 
     @RepeatedTest(64)
     public void basicOrdering(RepetitionInfo repetitionInfo) {
@@ -96,16 +83,21 @@ public class ImperativeOrderingTests {
         DclareConfig config = CONFIGS[(repetitionInfo.getCurrentRepetition() - 1) / 32];
 
         assertThrows(Error.class, () -> imperativeTest(config, 2, Set.of(Pair.of(0, 1), Pair.of(1, 0))));
-//        System.out.println("1");
         assertThrows(Error.class, () -> imperativeTest(config, 1, Set.of(Pair.of(0, 0))));
-//        System.out.println("2");
+        assertThrows(Error.class, () -> imperativeTest(config, 4, Set.of(
+                Pair.of(0, 1), Pair.of(1, 2), Pair.of(2, 3), Pair.of(3, 1)
+        )));
     }
 
     @RepeatedTest(64)
     public void wrongOrdering(RepetitionInfo repetitionInfo) {
         DclareConfig config = CONFIGS[(repetitionInfo.getCurrentRepetition() - 1) / 32];
 
-//        assertFalse(imperativeTest(config, 2, Set.of(Pair.of(0, 1)), Set.of(Pair.of(1, 0))));
+        assertFalse(imperativeTest(config, 2, Set.of(Pair.of(0, 1)), Set.of(Pair.of(1, 0))));
+        assertFalse(imperativeTest(config, 3,
+                Set.of(Pair.of(0, 1), Pair.of(0, 2), Pair.of(1, 2)),
+                Set.of(Pair.of(0, 1), Pair.of(0, 2), Pair.of(2, 1))
+        ));
     }
 
     private void run(UniverseTransaction utx, String id, Set<Pair<Integer, Runnable>> actions) {

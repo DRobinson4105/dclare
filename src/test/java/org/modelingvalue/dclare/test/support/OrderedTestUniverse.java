@@ -39,12 +39,8 @@ import org.modelingvalue.dclare.UniverseTransaction;
 
 @SuppressWarnings("unused")
 public class OrderedTestUniverse extends TestMutable implements Universe {
-//    public static OrderedTestUniverse of(Object id, TestMutableClass clazz, int size, Set<Pair<Integer, Integer>> expectedEdges, Set<Pair<Integer, Integer>> actualEdges) {
-//        return new OrderedTestUniverse(id, clazz, size, expectedEdges, actualEdges);
-//    }
-
-    public static OrderedTestUniverse of(Object id, TestMutableClass clazz, int size, Set<Pair<Integer, Integer>> edges) {
-        return new OrderedTestUniverse(id, clazz, size, edges);
+    public static OrderedTestUniverse of(Object id, TestMutableClass clazz, int size, Set<Pair<Integer, Integer>> expectedEdges, Set<Pair<Integer, Integer>> actualEdges) {
+        return new OrderedTestUniverse(id, clazz, size, expectedEdges, actualEdges);
     }
 
     private static final Setable<OrderedTestUniverse, Long> DUMMY     = Setable.of("$DUMMY", 0l);
@@ -58,27 +54,19 @@ public class OrderedTestUniverse extends TestMutable implements Universe {
     private final int                                size;
     private Set<Pair<Integer, Integer>>              expectedEdges;
     private Set<Pair<Integer, Integer>>              actualEdges;
-    private Set<Pair<Integer, Integer>>              edges;
     private Map<Integer, Set<Integer>> incoming = Map.of();
     AtomicReference<Map<Integer, Boolean>> passed = new AtomicReference<>(Map.of());
     private AtomicBoolean                            flag = new AtomicBoolean(true);
 
-//    private OrderedTestUniverse(Object id, TestMutableClass clazz, int size, Set<Pair<Integer, Integer>> expectedEdges, Set<Pair<Integer, Integer>> actualEdges) {
-//        super(id, clazz);
-//        this.size = size;
-//        this.expectedEdges = expectedEdges;
-//        this.actualEdges = actualEdges;
-//    }
-
-    private OrderedTestUniverse(Object id, TestMutableClass clazz, int size, Set<Pair<Integer, Integer>> edges) {
+    private OrderedTestUniverse(Object id, TestMutableClass clazz, int size, Set<Pair<Integer, Integer>> expectedEdges, Set<Pair<Integer, Integer>> actualEdges) {
         super(id, clazz);
         this.size = size;
-        this.edges = edges;
+        this.expectedEdges = expectedEdges;
+        this.actualEdges = actualEdges;
     }
 
     @Override
     public void init() {
-        System.out.println(size);
         scheduler.start();
         Universe.super.init();
         universeTransaction = LeafTransaction.getCurrent().universeTransaction();
@@ -90,7 +78,6 @@ public class OrderedTestUniverse extends TestMutable implements Universe {
 
         for (int i = 0; i < size; i++) {
             int finalI = i;
-            System.out.println(i);
             imperativeTransactions = imperativeTransactions.add(universeTransaction.addImperative("TEST" + i, (pre, post, last, setted) -> {
                 passed.getAndUpdate(list -> {
                     if (incoming.containsKey(finalI)) {
@@ -104,7 +91,6 @@ public class OrderedTestUniverse extends TestMutable implements Universe {
                     return list.put(finalI, true);
                 });
 
-                System.out.println("?");
                 pre.diff(post, o -> o instanceof TestNewable, s -> s == Mutable.D_PARENT_CONTAINING).forEach(e -> {
                     if (e.getValue().get(Mutable.D_PARENT_CONTAINING).b() != null) {
                         TestNewable n = (TestNewable) e.getKey();
@@ -120,7 +106,6 @@ public class OrderedTestUniverse extends TestMutable implements Universe {
             incoming = incoming.put(edge.b(), incoming.getOrDefault(edge.b(), Set.of()).add(edge.a()));
         }
         for (var edge : actualEdges) {
-            System.out.println(edge.a() + " -> " + edge.b());
             universeTransaction.orderImperativeTransactions("TEST" + edge.a(), "TEST" + edge.b());
         }
     }
