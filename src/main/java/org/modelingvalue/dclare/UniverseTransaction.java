@@ -20,7 +20,6 @@
 
 package org.modelingvalue.dclare;
 
-import java.util.Iterator;
 import java.util.Objects;
 import java.util.Timer;
 import java.util.TimerTask;
@@ -756,10 +755,10 @@ public class UniverseTransaction extends MutableTransaction {
         Set<IImperativeTransaction> s = started.getAndUpdate(old -> old.add(it));
         if (s.contains(it)) return;
 
-        stopped.updateAndGet(old -> old.add(it));
         if (it instanceof ImperativeTransaction im) {
             im.schedule(() -> {
                 if (im.commit(state, timeTraveling)) {
+                    stopped.updateAndGet(old -> old.add(it));
                     imperativeTransactions.getOutgoingNodes(it).forEach(next ->
                             tryCommit(state, timeTraveling, next, started, stopped, inSync));
                 } else {
@@ -767,6 +766,7 @@ public class UniverseTransaction extends MutableTransaction {
                 }
             });
         } else {
+            stopped.updateAndGet(old -> old.add(it));
             imperativeTransactions.getOutgoingNodes(it).forEach(next ->
                     tryCommit(state, timeTraveling, next, started, stopped, inSync));
         }
