@@ -25,18 +25,14 @@ import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
 import org.modelingvalue.collections.*;
-import org.modelingvalue.collections.util.Concurrent;
-import org.modelingvalue.collections.util.ContextPool;
-import org.modelingvalue.collections.util.StatusProvider;
+import org.modelingvalue.collections.util.*;
 import org.modelingvalue.collections.util.StatusProvider.AbstractStatus;
 import org.modelingvalue.collections.util.StatusProvider.StatusIterator;
-import org.modelingvalue.collections.util.TraceTimer;
 import org.modelingvalue.dclare.NonCheckingObserver.NonCheckingTransaction;
 import org.modelingvalue.dclare.Priority.MutableStates;
 import org.modelingvalue.dclare.ex.ConsistencyError;
@@ -197,6 +193,7 @@ public class UniverseTransaction extends MutableTransaction {
         if (startStatusConsumer != null) {
             startStatusConsumer.accept(startStatus);
         }
+        imperativeTransactions = imperativeTransactions.putEdge(SOURCE, TARGET, Void.class);
     }
 
     @Override
@@ -704,6 +701,16 @@ public class UniverseTransaction extends MutableTransaction {
         }
     }
 
+    /**
+     * Constructs a new imperative transaction and add it to the universe transaction. Synchronized
+     * on {@code this}.
+     *
+     * @param id string identifier
+     * @param diffHandler handles the incoming difference after fixpoint achieved, always executed on {@code scheduler}
+     * @param scheduler a single-threaded consumer that always uses the same thread
+     * @param keepTransaction if true, will persist the association of this transaction on the {@code scheduler}'s thread after scheduled actions have completed
+     * @return the created imperative transaction
+     */
     public ImperativeTransaction addImperative(String id, StateDeltaHandler diffHandler, Consumer<Runnable> scheduler, boolean keepTransaction) {
         ImperativeTransaction n = ImperativeTransaction.of(Imperative.of(id), preState, this, scheduler, diffHandler, keepTransaction);
         synchronized (this) {
@@ -712,12 +719,119 @@ public class UniverseTransaction extends MutableTransaction {
         return n;
     }
 
-    public void orderImperativeTransactions(ImperativeTransaction first, ImperativeTransaction second) {
-       imperativeTransactions = imperativeTransactions.putEdge(first, second, Void.class);
+    /**
+     * Constructs a new imperative transaction and add it to the universe transaction, adding any
+     * orderings between imperative transactions from {@code dependencies} and {@code dependents}.
+     * Synchronized on {@code this}.
+     *
+     * @param id string identifier
+     * @param diffHandler handles the incoming difference after fixpoint achieved, always executed on {@code scheduler}
+     * @param scheduler a single-threaded consumer that always uses the same thread
+     * @param keepTransaction if true, will persist the association of this transaction on the {@code scheduler}'s thread after scheduled actions have completed
+     * @param dependencies set of imperative transactions that will only run before this imperative transaction
+     * @param dependents set of imperative transactions that will only run after this imperative transaction
+     * @return the created imperative transaction
+     */
+    public ImperativeTransaction addImperative(String id, StateDeltaHandler diffHandler, Consumer<Runnable> scheduler, boolean keepTransaction, Set<ImperativeTransaction> dependencies, Set<ImperativeTransaction> dependents) {
+        ImperativeTransaction n = ImperativeTransaction.of(Imperative.of(id), preState, this, scheduler, diffHandler, keepTransaction);
+        synchronized (this) {
+            imperativeTransactions = imperativeTransactions.putEdge(SOURCE, n, Void.class);
+
+            for (var it : dependencies) {
+                imperativeTransactions = imperativeTransactions.putEdge(it, n, Void.class);
+            }
+
+            for (var it : dependents) {
+                imperativeTransactions = imperativeTransactions.putEdge(n, it, Void.class);
+            }
+
+            if (imperativeTransactions.getIncomingNodes(n).size() > 1)
+                imperativeTransactions = imperativeTransactions.removeEdge(SOURCE, n, Void.class);
+        }
+        return n;
     }
 
-    public void orderImperativeTransactions(String first, String second) {
-        orderImperativeTransactions(getImperativeTransaction(first), getImperativeTransaction(second));
+    /**
+     * Removes the given imperative transaction if it has no dependents. Synchronized on
+     * {@code this}.
+     *
+     * @param it imperative transaction to be removed
+     */
+    public void removeImperative(ImperativeTransaction it) {
+        synchronized (this) {
+            Set<IImperativeTransaction> outgoing = imperativeTransactions.getOutgoingNodes(it);
+
+            if (!outgoing.isEmpty()) {
+                throw new Error("Cannot remove " + it + " because it is a dependent of " + outgoing);
+            }
+
+            imperativeTransactions = imperativeTransactions.removeNode(it);
+        }
+    }
+    /**
+     * Removes the given imperative transaction if it has no dependents. Synchronized on
+     * {@code this}.
+     *
+     * @param id id of imperative transaction to be removed
+     */
+    public void removeImperative(String id) {
+        removeImperative(getImperativeTransaction(id));
+    }
+
+    /**
+     * Creates an ordering between the two imperative transactions, ensuring that {@code first}
+     * will always run before {@code second}. Synchronized on {@code this}.
+     *
+     * @param first imperative transaction to be run before {@code second}
+     * @param second imperative transaction to be run after {@code first}
+     */
+    public void orderImperatives(ImperativeTransaction first, ImperativeTransaction second) {
+        synchronized (this) {
+            imperativeTransactions = imperativeTransactions.putEdge(first, second, Void.class);
+            if (imperativeTransactions.hasCycles(n -> true, e -> true, first))
+                throw new Error("Circular native group ordering");
+
+            if (imperativeTransactions.getIncomingNodes(second).size() > 1)
+                imperativeTransactions = imperativeTransactions.removeEdge(SOURCE, second, Void.class);
+        }
+    }
+
+    /**
+     * Creates an ordering between the two imperative transactions, ensuring that {@code first}
+     * will always run before {@code second}. Synchronized on {@code this}.
+     *
+     * @param first id of imperative transaction to be run before {@code second}
+     * @param second id of imperative transaction to be run after {@code first}
+     */
+    public void orderImperatives(String first, String second) {
+        orderImperatives(getImperativeTransaction(first), getImperativeTransaction(second));
+    }
+
+    /**
+     * Removes an ordering between the two imperative transactions if it exists. Synchronized on
+     * {@code this}.
+     *
+     * @param first imperative transaction that was run before {@code second}
+     * @param second imperative transaction that was run after {@code first}
+     */
+    public void unorderImperatives(ImperativeTransaction first, ImperativeTransaction second) {
+        synchronized (this) {
+            if (imperativeTransactions.getIncomingNodes(second).size() == 1 && imperativeTransactions.containsEdge(first, second, Void.class))
+                imperativeTransactions = imperativeTransactions.putEdge(SOURCE, second, Void.class);
+
+            imperativeTransactions = imperativeTransactions.removeEdge(first, second, Void.class);
+        }
+    }
+
+    /**
+     * Removes an ordering between the two imperative transactions if it exists. Synchronized on
+     * {@code this}.
+     *
+     * @param first id of imperative transaction that runs before {@code second}
+     * @param second id of imperative transaction that runs after {@code first}
+     */
+    public void unorderImperatives(String first, String second) {
+        unorderImperatives(getImperativeTransaction(first), getImperativeTransaction(second));
     }
 
     @SuppressWarnings("unchecked")
@@ -735,40 +849,36 @@ public class UniverseTransaction extends MutableTransaction {
     }
 
     private void commit(State state, boolean timeTraveling) {
-        if (imperativeTransactions.hasCycles(n -> true, e -> true))
-            throw new Error("Circular native group ordering");
+        AtomicReference<Map<IImperativeTransaction, Integer>> status = new AtomicReference<>(Map.of());
+        status.updateAndGet(map -> map.put(TARGET, 1));
 
-        AtomicReference<Set<IImperativeTransaction>> started = new AtomicReference<>(Set.of());
-        AtomicReference<Set<IImperativeTransaction>> stopped = new AtomicReference<>(Set.of());
-        AtomicBoolean inSync = new AtomicBoolean(true);
-
-        imperativeTransactions = imperativeTransactions.putEdge(SOURCE, TARGET, Void.class);
-        tryCommit(state, timeTraveling, SOURCE, started, stopped, inSync);
+        tryCommit(state, timeTraveling, SOURCE, status);
     }
 
-    private void tryCommit(State state, boolean timeTraveling, IImperativeTransaction it, AtomicReference<Set<IImperativeTransaction>> started, AtomicReference<Set<IImperativeTransaction>> stopped, AtomicBoolean inSync) {
-        if (!inSync.get() || killed || Objects.equals(it, TARGET)) return;
+    private void tryCommit(State state, boolean timeTraveling, IImperativeTransaction it, AtomicReference<Map<IImperativeTransaction, Integer>> status) {
+        if (status.get().get(TARGET) == 0 || killed || Objects.equals(it, TARGET)) return;
 
         Set<IImperativeTransaction> incoming = imperativeTransactions.getIncomingNodes(it);
-        if (!stopped.get().containsAll(incoming)) return;
+        Map<IImperativeTransaction, Integer> map = status.get();
+        if (!incoming.isEmpty() && !incoming.allMatch(e -> map.getOrDefault(e, -1) == 2)) return;
 
-        Set<IImperativeTransaction> s = started.getAndUpdate(old -> old.add(it));
-        if (s.contains(it)) return;
+        Map<IImperativeTransaction, Integer> m = status.getAndUpdate(old -> old.put(it, 1));
+        if (m.getOrDefault(it, 0) == 1) return;
 
         if (it instanceof ImperativeTransaction im) {
             im.schedule(() -> {
                 if (im.commit(state, timeTraveling)) {
-                    stopped.updateAndGet(old -> old.add(it));
+                    status.updateAndGet(old -> old.put(it, 2));
                     imperativeTransactions.getOutgoingNodes(it).forEach(next ->
-                            tryCommit(state, timeTraveling, next, started, stopped, inSync));
+                            tryCommit(state, timeTraveling, next, status));
                 } else {
-                    inSync.set(false);
+                    status.getAndUpdate(old -> old.put(TARGET, 0));
                 }
             });
         } else {
-            stopped.updateAndGet(old -> old.add(it));
+            status.updateAndGet(old -> old.put(it, 2));
             imperativeTransactions.getOutgoingNodes(it).forEach(next ->
-                    tryCommit(state, timeTraveling, next, started, stopped, inSync));
+                    tryCommit(state, timeTraveling, next, status));
         }
     }
 

@@ -106,7 +106,7 @@ public class OrderedTestUniverse extends TestMutable implements Universe {
             incoming = incoming.put(edge.b(), incoming.getOrDefault(edge.b(), Set.of()).add(edge.a()));
         }
         for (var edge : actualEdges) {
-            universeTransaction.orderImperativeTransactions("TEST" + edge.a(), "TEST" + edge.b());
+            universeTransaction.orderImperatives("TEST" + edge.a(), "TEST" + edge.b());
         }
     }
 
